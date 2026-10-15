@@ -442,6 +442,8 @@ class PhotoPanel(QWidget):
         self._close = close
         self._located = located
         self._marked = None        # (key, site, drive) last shown on the map
+        self._pinned = False       # the ring is on a stop picked on the map: leave it
+        self._auto_select = False  # the panel, not the user, is choosing a photo
         self._loader = ImageLoader(self)
         self.key = None
         self._sol = None
@@ -544,7 +546,7 @@ class PhotoPanel(QWidget):
         self.view.overlay(self.photo_spinner, "centre")
 
         self.strip = FilmStrip()
-        self.strip.currentRowChanged.connect(self.open_photo)
+        self.strip.currentRowChanged.connect(self._on_row)
         c.addWidget(self.strip)
 
         self.lbl_caption = ElidedLabel("", bold=True)
@@ -586,8 +588,10 @@ class PhotoPanel(QWidget):
         self._enable_nav()
 
     # --- rover and sol -------------------------------------------------------
-    def show_rover(self, key, sol=None):
-        """Show a rover's photos at ``sol`` (None: the newest sol with photos)."""
+    def show_rover(self, key, sol=None, pinned=False):
+        """Show a rover's photos at ``sol`` (None: the newest sol with photos).
+        ``pinned``: the sol was opened by picking a stop on the map, which is
+        already ringed; keep the ring there until the user picks a photo."""
         if key is None:
             return
         if key != self.key:
@@ -596,9 +600,9 @@ class PhotoPanel(QWidget):
             self.cbo_camera.blockSignals(True)
             self.cbo_camera.clear()
             self.cbo_camera.blockSignals(False)
-        self.go_to_sol(sol)
+        self.go_to_sol(sol, pinned)
 
-    def go_to_sol(self, sol):
+    def go_to_sol(self, sol, pinned=False):
         if self.key is None:
             return
         if sol is None:
@@ -612,7 +616,7 @@ class PhotoPanel(QWidget):
         self.spin_sol.blockSignals(True)
         self.spin_sol.setValue(sol)
         self.spin_sol.blockSignals(False)
-        self._load_sol(sol)
+        self._load_sol(sol, pinned)
 
     def update_latest(self):
         """Limit the sol box to the newest sol NASA has posted photos for (the
@@ -629,10 +633,13 @@ class PhotoPanel(QWidget):
     def waiting_for_latest(self):
         return self.key is not None and self._sol is None
 
-    def _load_sol(self, sol):
+    def _load_sol(self, sol, pinned=False):
         if self.key is None:
             return
         self._sol = sol
+        self._pinned = pinned
+        if pinned:
+            self._marked = None   # the next photo the user picks moves the ring
         self._loader.reset()
         self._abort(self._page_reply)
         self._abort(self._big_reply)
@@ -643,6 +650,7 @@ class PhotoPanel(QWidget):
         self.strip.blockSignals(False)
         self.view.clear()
         self._clear_caption()
+        self._reset_camera_counts()
         self._show_message("", loading=True)
         self.lbl_sol.setText(f"Sol {sol}")
         self._enable_sol_buttons()
@@ -713,6 +721,18 @@ class PhotoPanel(QWidget):
         self._fill_cameras()
         self._describe_sol()
 
+    def _reset_camera_counts(self):
+        """While a sol loads, drop the previous sol's photo counts from the camera
+        list (keeping the chosen camera), so nothing on screen is stale."""
+        current = self.cbo_camera.currentData()
+        self.cbo_camera.blockSignals(True)
+        self.cbo_camera.clear()
+        self.cbo_camera.addItem(_ALL_CAMERAS, _ALL_CAMERAS)
+        if current not in (None, _ALL_CAMERAS):
+            self.cbo_camera.addItem(current, current)
+            self.cbo_camera.setCurrentIndex(1)
+        self.cbo_camera.blockSignals(False)
+
     def _fill_cameras(self):
         current = self.cbo_camera.currentData()
         counts = {}
@@ -753,7 +773,9 @@ class PhotoPanel(QWidget):
             elif p["thumb"]:
                 self._loader.get(p["thumb"], lambda img, it=item, pid=p["id"]:
                                  self._on_thumb(it, pid, img))
+        self._auto_select = True
         self.strip.setCurrentRow(0)   # shows the newest photo
+        self._auto_select = False
 
     def _on_thumb(self, item, photo_id, image):
         if image is None:
@@ -795,7 +817,7 @@ class PhotoPanel(QWidget):
         """Centre the map on where the photos were taken and mark the spot, but
         only when that place changes, so stepping through photos taken at one
         stop leaves the map alone."""
-        if location is None:
+        if location is None or self._pinned:
             return
         marked = (self.key, location[0], location[1])
         if marked != self._marked:
@@ -809,6 +831,11 @@ class PhotoPanel(QWidget):
         self.stack.setCurrentIndex(1)
 
     # --- the photo in the preview --------------------------------------------
+    def _on_row(self, index):
+        if not self._auto_select:
+            self._pinned = False   # the user chose a photo: the ring follows it
+        self.open_photo(index)
+
     def open_photo(self, index):
         if not 0 <= index < len(self._shown):
             return
@@ -965,6 +992,7 @@ class PhotoPanel(QWidget):
             self.btn_full.hide()
 
     def step(self, delta):
+        self._pinned = False   # stepping through photos: the ring follows them
         self.open_photo(self._index + delta)
 
     def set_picking(self, on):

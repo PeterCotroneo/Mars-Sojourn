@@ -4,6 +4,8 @@ NASA's Mars rovers on a Mars map, in QGIS.
 
 Mars Sojourn shows where Perseverance and Curiosity are now, every stop they have made and the routes they have driven since landing, over NASA orbital imagery that sharpens to close-up HiRISE colour around each route. The Ingenuity helicopter's 72 flights are included as a record.
 
+![Perseverance's route over HiRISE imagery in Jezero crater, with the rover's latest photos in the Mars Sojourn panel](docs/img/01-perseverance-photos.jpg)
+
 ## What you get
 
 A "Mars Rovers" group in the Layers panel:
@@ -15,6 +17,10 @@ A "Mars Rovers" group in the Layers panel:
 
 Click a rover, stop or route with QGIS's Identify tool for the sol (Mars day since landing), distance driven, elevation and tilt.
 
+![Curiosity's route climbing through Gale crater, with a Navcam view of the crater rim in the panel](docs/img/02-curiosity-gale.jpg)
+
+![Ingenuity's flights over Jezero, with the helicopter's own photo of its shadow after flight 55](docs/img/03-ingenuity-flights.jpg)
+
 ## Photos
 
 The bottom of the Mars Sojourn panel is a photo viewer with the rovers' raw photos, straight from NASA's raw-image feeds, usually within hours of reaching Earth. It opens on Perseverance's newest photos; the Photos button next to each rover switches to that rover.
@@ -24,6 +30,8 @@ The bottom of the Mars Sojourn panel is a photo viewer with the rovers' raw phot
 - click a thumbnail to see it in the preview: zoom with the mouse wheel or + and -, drag to pan, double-click to fit, arrow keys for the previous and next photo, ⤢ to see the photo large over the whole QGIS window (Esc closes), and full size on request
 - each photo says where it was taken (rovers stamp their photos with counters that match the stops on the map), with a Show on map link
 - Pick a stop, then click any stop on the map, to see the photos from that sol
+
+![A Perseverance Navcam photo from sol 204, shown large over the QGIS window](docs/img/04-full-screen-photo.jpg)
 
 Some raw frames are naturally dark or odd-looking: night-time and calibration shots, and partial frames with black around them. That is how NASA posts them.
 

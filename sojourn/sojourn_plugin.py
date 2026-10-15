@@ -403,7 +403,7 @@ class SojournPlugin:
             self.iface.setActiveLayer(layer)
 
     # --- photos ----------------------------------------------------------
-    def show_photos(self, key, sol=None):
+    def show_photos(self, key, sol=None, pinned=False):
         """Show the rover's photos in the panel at ``sol`` (default: the newest
         sol with photos). Also called by the "Show photos from this sol" action
         on stops and on the rover."""
@@ -424,7 +424,7 @@ class SojournPlugin:
             sol = None if sol is None else int(sol)
         except (TypeError, ValueError):
             sol = None
-        self.photos.show_rover(key, sol)
+        self.photos.show_rover(key, sol, pinned)
 
     def _close_photos(self):
         self._end_pick()
@@ -511,7 +511,11 @@ class SojournPlugin:
                 Qgis.MessageLevel.Info, 4)
             return
         key, stop = found
-        self.show_photos(key, stop["sol"])
+        centre = to_project(stop["lon"], stop["lat"])
+        if centre is not None:
+            self._ring(centre)    # mark the dot straight away; the photos follow
+            self._flash(stop)
+        self.show_photos(key, stop["sol"], pinned=centre is not None)
 
     def nearest_stop(self, point, tolerance):
         """(mission key, stop) nearest a map point (project CRS) over every mission
@@ -599,11 +603,18 @@ class SojournPlugin:
         if centre is None:
             self._clear_marker()   # not on the map (or the map is not on Mars)
             return
+        if self._marker is not None and self._marker.center() == centre:
+            return   # already ringed (the stop just picked on the map): leave the map be
         canvas = self.iface.mapCanvas()
         canvas.setCenter(centre)
         canvas.refresh()
+        self._ring(centre)
+        self._flash(spot)
+
+    def _ring(self, centre):
+        """The red ring on the map, moved to ``centre`` (project CRS)."""
         if self._marker is None:
-            self._marker = QgsVertexMarker(canvas)
+            self._marker = QgsVertexMarker(self.iface.mapCanvas())
             self._marker.setIconType(QgsVertexMarker.IconType.ICON_CIRCLE)
             self._marker.setIconSize(26)
             self._marker.setPenWidth(4)
@@ -611,7 +622,6 @@ class SojournPlugin:
             self._marker.setFillColor(QColor(255, 59, 48, 40))
         self._marker.setCenter(centre)
         self._marker.show()
-        self._flash(spot)
 
     def _clear_marker(self):
         if self._marker is not None:
