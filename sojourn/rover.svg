@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- a rover seen from above, facing up -->
+  <g fill="#1b1b1b" stroke="#ffffff" stroke-width="1.5">
+    <rect x="8" y="9" width="10" height="13" rx="3"/>
+    <rect x="46" y="9" width="10" height="13" rx="3"/>
+    <rect x="8" y="27" width="10" height="13" rx="3"/>
+    <rect x="46" y="27" width="10" height="13" rx="3"/>
+    <rect x="8" y="45" width="10" height="13" rx="3"/>
+    <rect x="46" y="45" width="10" height="13" rx="3"/>
+  </g>
+  <rect x="19" y="14" width="26" height="40" rx="5" fill="param(fill) #35d0ff"
+        stroke="param(outline) #101010" stroke-width="param(outline-width) 2"/>
+  <path d="M32 2 L40 13 L24 13 Z" fill="param(fill) #35d0ff"
+        stroke="param(outline) #101010" stroke-width="param(outline-width) 2" stroke-linejoin="round"/>
+  <circle cx="32" cy="24" r="5" fill="#ffffff" stroke="param(outline) #101010" stroke-width="1.5"/>
+</svg>

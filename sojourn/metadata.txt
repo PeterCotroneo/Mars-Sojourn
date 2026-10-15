@@ -1,0 +1,18 @@
+[general]
+name=Mars Sojourn
+qgisMinimumVersion=3.28
+qgisMaximumVersion=4.99
+description=Watch NASA's Mars rovers on a Mars map: where Perseverance and Curiosity are now, every drive since landing, Ingenuity's 72 flights and the rovers' latest raw photos.
+about=Mars Sojourn puts NASA's two working Mars rovers, Perseverance and Curiosity, on a map of Mars in QGIS. For each rover it shows the latest position NASA has published, every stop along the way and the full route driven since landing, over NASA orbital imagery that sharpens to close-up HiRISE colour around each route. The Ingenuity helicopter, which flew from Perseverance, is included with its 72 flights and its own photos. Click a rover, stop or route with the Identify tool for the sol (Mars day), distance driven, elevation and tilt. A photo viewer built into the panel shows each rover's raw photos from NASA, sol by sol and camera by camera, with zoom and a link from any stop on the map to the photos taken there. The map is put in a proper Mars projection (Mars Mercator, IAU 2015) and measures on the Mars sphere, so the scale bar and Measure tool give real Martian distances. This is not live tracking: a rover's position changes only when it drives and NASA publishes the new spot, usually every few days. Every hour the plugin checks for a new position and reads the rover's newest photo, so the panel can warn when a rover has driven and NASA has not mapped the new spot yet. Free and keyless. Data courtesy NASA/JPL-Caltech; this plugin is not affiliated with or endorsed by NASA, JPL or Caltech. It reads the files behind NASA's public rover location maps, which are not a documented service and could change without notice, hence experimental.
+version=0.1.0
+author=Peter Cotroneo
+email=peter.cotroneo.qgis@gmail.com
+tracker=https://github.com/PeterCotroneo/Mars-Sojourn/issues
+repository=https://github.com/PeterCotroneo/Mars-Sojourn
+homepage=https://github.com/PeterCotroneo/Mars-Sojourn
+category=Plugins
+icon=icon.svg
+experimental=True
+deprecated=False
+tags=mars,rover,photos,raw images,perseverance,curiosity,ingenuity,nasa,jpl,planetary,solar system,jezero,gale,hirise,space
+changelog=0.1.0 - First release: Perseverance and Curiosity (latest position, stops, route), hourly check against the rovers' newest photos, raw photo viewer (rovers and Ingenuity, with a large view), Ingenuity's flights, NASA Mars imagery, Mars map projection.
