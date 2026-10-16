@@ -124,11 +124,11 @@ def photo_status(position, photo):
     if not position or not photo or photo["sol"] < position["sol"] \
             or photo["site"] is None or photo["drive"] is None:
         return None, ""
-    when = f"{day_text(photo['day'])} (sol {photo['sol']})"
+    when = f"{day_text(photo['day'])}, sol {photo['sol']}"
     if (photo["site"], photo["drive"]) == (position["site"], position["drive"]):
         return "here", ""
-    return "moved", (f"Has driven since: photos from {when} are from a new spot "
-                     "NASA has not mapped yet")
+    return "moved", (f"Has driven again (photos from {when}). NASA hasn't mapped the "
+                     "new spot yet, so the map shows the last one.")
 
 
 def _nasa_date(text):

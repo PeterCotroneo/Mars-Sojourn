@@ -300,11 +300,10 @@ class MissionLayers:
 
     def _style_position(self):
         colour = QColor(self.mission["colour"])
-        if self.is_heli:
-            marker = QgsSimpleMarkerSymbolLayer()
-            marker.setShape(Qgis.MarkerShape.Star)
-            marker.setSize(5.0)
-            marker.setColor(colour)
+        if self.is_heli:   # Ingenuity seen from above: its two rotors and solar panel
+            marker = QgsSvgMarkerSymbolLayer(os.path.join(plugin_dir, "helicopter.svg"))
+            marker.setSize(10.0)   # thin blades: a little larger than the rover to read as well
+            marker.setFillColor(colour)
             marker.setStrokeColor(QColor("#101010"))
             marker.setStrokeWidth(0.3)
         else:

@@ -13,11 +13,17 @@ stated as Mars Mercator.
 
 A tile service always spans the whole planet, so each close-up layer is clipped
 to the area NASA actually covers (a small GDAL VRT around the tile service).
-Without that, every map redraw asks NASA for thousands of tiles that do not
-exist, which made redraws take tens of seconds and could stall QGIS on exit.
+
+GDAL never downloads anything itself: every layer reads in GDAL's offline mode
+from a local tile cache, which tiles.TileFetcher fills in the background through
+QGIS's network manager. A GDAL download cannot be cancelled once started, so
+when GDAL fetched tiles while drawing, a slow or stalled connection could freeze
+QGIS for tens of seconds and stop it from quitting at all. Reading from the
+cache, a missing tile is simply blank until it arrives.
 """
 
 import contextlib
+import hashlib
 import math
 import os
 from html import escape
@@ -45,7 +51,9 @@ _TREK = "https://trek.nasa.gov/tiles/Mars/EQ"
 IMAGERY = [
     {
         "key": "global", "title": "Mars - global colour mosaic (232 m)", "mission": None,
-        "grid": "degrees", "ext": "jpg", "bands": 3, "levels": (0, 7), "max_scale": None,
+        # 4 bands although the tiles are JPEG: GDAL adds an alpha band, so a tile
+        # not downloaded yet is see-through rather than black
+        "grid": "degrees", "ext": "jpg", "bands": 4, "levels": (0, 7), "max_scale": None,
         "url": _TREK + "/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm",
         "credit": "NASA/JPL-Caltech/USGS",
     },
@@ -131,21 +139,43 @@ def to_project(lon, lat):
     return transform.transform(QgsPointXY(lon, lat))
 
 
+def tile_template(spec):
+    """The layer's tile URL with GDAL's ${z} ${x} ${y} placeholders. GDAL keys
+    its tile cache on this exact text, so the fetcher uses it too."""
+    order = "${z}/${x}/${y}" if spec["grid"] == "mercator" else "${z}/${y}/${x}"
+    suffix = f".{spec['ext']}" if spec["ext"] else ""
+    return f"{spec['url']}/{order}{suffix}"
+
+
+def tile_cache_dir():
+    path = os.path.join(QgsApplication.qgisSettingsDirPath(), "sojourn", "tiles")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def tile_cache_path(spec, url):
+    """Where GDAL's offline mode looks for a tile: <cache>/<md5 of the URL
+    template>/<first hex digit>/<second hex digit>/<md5 of the tile URL>."""
+    name = hashlib.md5(url.encode("utf-8"), usedforsecurity=False).hexdigest()
+    service = hashlib.md5(tile_template(spec).encode("utf-8"), usedforsecurity=False).hexdigest()
+    return os.path.join(tile_cache_dir(), service, name[0], name[1], name)
+
+
 def _tiles_xml(spec):
-    """A GDAL tile-service description for one imagery layer."""
+    """A GDAL tile-service description for one imagery layer, read offline
+    from the tile cache (see the module notes)."""
     high = spec["levels"][1]
     block = 256
     if spec["grid"] == "mercator":
         half = math.pi * MARS_RADIUS
         window = (-half, half, half, -half)
-        count_x, origin, order, proj = 1, "bottom", "${z}/${x}/${y}", mercator_crs().toProj()
+        count_x, origin, proj = 1, "bottom", mercator_crs().toProj()
     else:   # NASA Mars Trek: two 180-degree tiles at level 0, numbered from the top
         window = (-180.0, 90.0, 180.0, -90.0)
-        count_x, origin, order, proj = 2, "top", "${z}/${y}/${x}", geographic_crs().toProj()
-    suffix = f".{spec['ext']}" if spec["ext"] else ""
+        count_x, origin, proj = 2, "top", geographic_crs().toProj()
     return (
         "<GDAL_WMS>"
-        f'<Service name="TMS"><ServerUrl>{escape(spec["url"])}/{order}{suffix}'
+        f'<Service name="TMS"><ServerUrl>{escape(tile_template(spec))}'
         "</ServerUrl></Service>"
         "<DataWindow>"
         f"<UpperLeftX>{window[0]!r}</UpperLeftX><UpperLeftY>{window[1]!r}</UpperLeftY>"
@@ -159,10 +189,9 @@ def _tiles_xml(spec):
         # NASA answers 403 (not 404) for tiles outside the imagery: draw nothing there
         "<ZeroBlockHttpCodes>403,404</ZeroBlockHttpCodes>"
         "<ZeroBlockOnServerException>true</ZeroBlockOnServerException>"
-        # No <Cache>: GDAL's disk cache logs an error for every tile NASA answers
-        # 403 for. Tiles already drawn are still kept in memory for the session.
-        f"<UserAgent>{escape(_USER_AGENT)}</UserAgent><Timeout>15</Timeout>"
-        "<MaxConnections>10</MaxConnections>"
+        f"<Cache><Path>{escape(tile_cache_dir())}</Path></Cache>"
+        "<OfflineMode>true</OfflineMode>"   # never download while drawing
+        f"<UserAgent>{escape(_USER_AGENT)}</UserAgent>"
         "</GDAL_WMS>"
     )
 
@@ -173,16 +202,42 @@ def _imagery_dir():
     return path
 
 
+def _gdal_errors_raise():
+    """GDAL errors as Python exceptions in a ``with`` block only, without
+    changing the setting for the rest of QGIS (and silencing GDAL's warning)."""
+    manager = getattr(gdal, "ExceptionMgr", None)
+    return manager(useExceptions=True) if manager else contextlib.nullcontext()
+
+
+def _warped_to_mercator(spec, service, folder):
+    """The global mosaic, re-projected by GDAL into Mars Mercator (a warped VRT).
+    Drawn straight from longitude/latitude, QGIS would ask for detail fine
+    enough for the stretched polar regions everywhere, thousands of tiles for a
+    whole-planet view; warped, it needs only the level that matches the map."""
+    half = math.pi * MARS_RADIUS
+    warped = os.path.join(folder, spec["key"] + "_mercator.vrt")
+    with _gdal_errors_raise():
+        src = gdal.Open(service)
+        res = 2 * half / src.RasterXSize
+        result = gdal.Warp(warped, src, format="VRT", dstSRS=mercator_crs().toProj(),
+                           outputBounds=(-half, -0.99 * half, half, 0.99 * half),   # Mercator stops short of the poles
+                           xRes=res, yRes=res, resampleAlg="bilinear")
+    if result is None:
+        return None
+    result = src = None   # closes the VRT so it is written out
+    return warped
+
+
 def _source(spec):
-    """What QGIS opens for one imagery layer: the tile service itself for the
-    global mosaic, or a VRT clipping it to the area NASA covers."""
+    """What QGIS opens for one imagery layer: the global mosaic re-projected to
+    Mars Mercator, or a VRT clipping a close-up layer to the area NASA covers."""
     xml = _tiles_xml(spec)
-    if not spec.get("bbox"):
-        return xml
     folder = _imagery_dir()
     service = os.path.join(folder, spec["key"] + ".xml")
     with open(service, "w", encoding="utf-8") as f:
         f.write(xml)
+    if not spec.get("bbox"):
+        return _warped_to_mercator(spec, service, folder)
     west, south, east, north = spec["bbox"]
     if spec["grid"] == "mercator":   # the clip box goes in the layer's own coordinates
         to_merc = QgsCoordinateTransform(geographic_crs(), mercator_crs(), QgsProject.instance())
@@ -191,10 +246,7 @@ def _source(spec):
     else:
         top_left, bottom_right = QgsPointXY(west, north), QgsPointXY(east, south)
     clipped = os.path.join(folder, spec["key"] + ".vrt")
-    # GDAL errors as Python exceptions here only, without changing the setting
-    # for the rest of QGIS (and silencing GDAL's warning about it)
-    manager = getattr(gdal, "ExceptionMgr", None)
-    with manager(useExceptions=True) if manager else contextlib.nullcontext():
+    with _gdal_errors_raise():
         result = gdal.Translate(clipped, service, format="VRT",
                                 projWin=[top_left.x(), top_left.y(),
                                          bottom_right.x(), bottom_right.y()])
@@ -216,7 +268,9 @@ def imagery_layer(spec):
     layer = QgsRasterLayer(source, spec["title"], "gdal")
     if not layer.isValid():
         return None
-    layer.setCrs(mercator_crs() if spec["grid"] == "mercator" else geographic_crs())
+    # the global mosaic is warped to Mercator (see _warped_to_mercator)
+    in_mercator = spec["grid"] == "mercator" or not spec.get("bbox")
+    layer.setCrs(mercator_crs() if in_mercator else geographic_crs())
     layer.setLegend(NoLegend())
     try:
         layer.serverProperties().setAttribution(spec["credit"])   # QGIS 3.38+

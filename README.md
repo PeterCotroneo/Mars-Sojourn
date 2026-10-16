@@ -39,7 +39,7 @@ Some raw frames are naturally dark or odd-looking: night-time and calibration sh
 
 A rover's position changes only when it drives and NASA publishes the new spot. That is usually every few days, and sometimes not for weeks while a rover works in one place. Mars Sojourn draws each rover exactly where NASA last located it, turned to the heading NASA reports, and never estimates or animates movement.
 
-Every hour Mars Sojourn also reads the newest photo NASA has posted from each rover. A rover's photos are stamped with counters that change only when it drives, so if the rover has driven and NASA has not mapped the new spot yet, the panel says so in red.
+Every hour Mars Sojourn also reads the newest photo NASA has posted from each rover. A rover's photos are stamped with counters that change only when it drives, so if the rover has driven and NASA has not mapped the new spot yet, the panel says so in amber.
 
 ## The map is on Mars
 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Ingenuity seen from above: two stacked rotors (1.2 m across, far wider
+       than the rest of it), the solar panel on top, its four legs peeking out -->
+  <g stroke="#1b1b1b" stroke-width="2.5" stroke-linecap="round">
+    <path d="M32 32 L19 45 M32 32 L45 45 M32 32 L19 19 M32 32 L45 19"/>
+  </g>
+  <rect x="2" y="28.5" width="60" height="7" rx="3.5" transform="rotate(28 32 32)"
+        fill="param(fill) #9be564" stroke="param(outline) #101010" stroke-width="param(outline-width) 2"/>
+  <rect x="2" y="28.5" width="60" height="7" rx="3.5" transform="rotate(-28 32 32)"
+        fill="param(fill) #9be564" stroke="param(outline) #101010" stroke-width="param(outline-width) 2"/>
+  <rect x="24" y="24" width="16" height="16" rx="2" fill="#1b1b1b" stroke="#ffffff" stroke-width="1.5"/>
+  <path d="M32 25 V39 M25 32 H39" stroke="#5a5a5a" stroke-width="1"/>
+</svg>

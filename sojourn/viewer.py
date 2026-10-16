@@ -431,8 +431,9 @@ class PhotoPanel(QWidget):
     flight up to that sol landed)."""
 
     def __init__(self, latest_sol, where, show_on_map, pick_on_map, close, located,
-                 nav_sols, parent=None):
+                 nav_sols, sol_location, parent=None):
         super().__init__(parent)
+        self._sol_location_of = sol_location   # (key, sol) -> where the rover was, or None
         self._nav_sols = nav_sols
         self._lightbox = None
         self._latest_sol = latest_sol
@@ -472,6 +473,15 @@ class PhotoPanel(QWidget):
         row.addWidget(_tool("✕", "Hide the photos", lambda: self._close()))
         v.addLayout(row)
 
+        # Pick a stop's instructions, shown only while picking
+        self.lbl_pick_hint = QLabel()
+        self.lbl_pick_hint.setWordWrap(True)
+        self.lbl_pick_hint.setStyleSheet(
+            "QLabel { background: palette(highlight); color: palette(highlighted-text);"
+            " border-radius: 4px; padding: 5px 8px; }")
+        self.lbl_pick_hint.hide()
+        v.addWidget(self.lbl_pick_hint)
+
         # sol bar: one compact row
         row = QHBoxLayout()
         row.setSpacing(4)
@@ -479,12 +489,14 @@ class PhotoPanel(QWidget):
         row.addWidget(self.btn_earlier)
         self.spin_sol = QSpinBox()
         self.spin_sol.setPrefix("Sol ")
-        self.spin_sol.setRange(0, 0)   # widened once the newest sol is known
+        self.spin_sol.setRange(-1, -1)   # -1 = no sol yet; widened once the newest sol is known
+        self.spin_sol.setSpecialValueText("Sol …")   # shown only while waiting (see _set_sol_box)
+        self.spin_sol.setValue(-1)
         self.spin_sol.setKeyboardTracking(False)   # only load once typing is done
         self.spin_sol.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.spin_sol.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spin_sol.setFixedWidth(76)
-        self.spin_sol.valueChanged.connect(self._load_sol)
+        self.spin_sol.valueChanged.connect(self._on_sol_typed)
         row.addWidget(self.spin_sol)
         self.btn_later = _tool("▶", "Later sol", lambda: self._step_sol(1))
         row.addWidget(self.btn_later)
@@ -609,21 +621,51 @@ class PhotoPanel(QWidget):
             sol = self._latest_sol(self.key)
             if sol is None:
                 self._sol = None
+                self._set_sol_box(None)   # not "Sol 0": the newest sol isn't known yet
                 self._show_message("", loading=True)
                 return
         self.update_latest()
-        sol = min(max(0, int(sol)), self.spin_sol.maximum())
-        self.spin_sol.blockSignals(True)
-        self.spin_sol.setValue(sol)
-        self.spin_sol.blockSignals(False)
+        latest = self._latest_sol(self.key)
+        sol = max(0, int(sol))
+        if latest is not None:
+            sol = min(sol, latest)
+        self._set_sol_box(sol)
         self._load_sol(sol, pinned)
 
+    def _set_sol_box(self, sol):
+        """Show ``sol`` in the sol box, or "Sol …" (with the sol buttons off)
+        while the panel waits to learn which sol to open."""
+        waiting = sol is None
+        self.spin_sol.blockSignals(True)
+        # Qt shows the special text at the minimum value, which is a real sol 0
+        # once the panel isn't waiting, so it is set only while waiting
+        self.spin_sol.setSpecialValueText("Sol …" if waiting else "")
+        self.spin_sol.setMinimum(-1 if waiting else 0)
+        self.spin_sol.setValue(-1 if waiting else sol)
+        self.spin_sol.blockSignals(False)
+        self.spin_sol.setEnabled(not waiting)
+        self.btn_latest.setEnabled(not waiting)
+        if waiting:
+            self.btn_earlier.setEnabled(False)
+            self.btn_later.setEnabled(False)
+
+    def _on_sol_typed(self, sol):
+        """A sol typed in the box. Any number can be typed; past the newest sol
+        with photos, the panel shows the newest and says why (a box that just
+        refused the keystroke left people guessing)."""
+        latest = self._latest_sol(self.key) if self.key else None
+        if latest is not None and sol > latest:
+            self.go_to_sol(latest)
+            self.show_hint(f"No photos after sol {latest} yet, so showing the newest.")
+            return
+        self._load_sol(sol)
+
     def update_latest(self):
-        """Limit the sol box to the newest sol NASA has posted photos for (the
-        limit rises by itself when NASA posts a new sol)."""
+        """Note the newest sol NASA has posted photos for in the sol box's
+        tooltip and the ◀ ▶ buttons (it rises by itself when NASA posts a new sol)."""
         latest = self._latest_sol(self.key) if self.key else None
         self.spin_sol.blockSignals(True)
-        self.spin_sol.setMaximum(latest if latest is not None else 99999)
+        self.spin_sol.setMaximum(99999)   # any number can be typed; see _on_sol_typed
         self.spin_sol.blockSignals(False)
         self.spin_sol.setToolTip("Mars day since landing; type a number to jump to it" + (
             f" (newest with photos: {latest})" if latest is not None else ""))
@@ -636,10 +678,20 @@ class PhotoPanel(QWidget):
     def _load_sol(self, sol, pinned=False):
         if self.key is None:
             return
+        if self.btn_pick.isEnabled():   # an old note no longer applies (but keep picking hints)
+            self.lbl_pick_hint.hide()
         self._sol = sol
-        self._pinned = pinned
-        if pinned:
+        if not pinned:
+            # The map moves first: centre on where the rover was that sol (known
+            # from its stops) now, rather than when NASA's photos arrive.
+            where = self._sol_location_of(self.key, sol)
+            if where is not None:
+                self._marked = (self.key, where[0], where[1])
+                self._located(self.key, *where)
+                pinned = True
+        else:
             self._marked = None   # the next photo the user picks moves the ring
+        self._pinned = pinned
         self._loader.reset()
         self._abort(self._page_reply)
         self._abort(self._big_reply)
@@ -995,8 +1047,20 @@ class PhotoPanel(QWidget):
         self._pinned = False   # stepping through photos: the ring follows them
         self.open_photo(self._index + delta)
 
-    def set_picking(self, on):
-        self.btn_pick.setText("Click a stop on the map…" if on else "Pick a stop")
+    def show_hint(self, text, seconds=6):
+        """A short note in the highlighted strip, gone after a few seconds."""
+        self.lbl_pick_hint.setText(text)
+        self.lbl_pick_hint.show()
+        QTimer.singleShot(seconds * 1000, lambda t=text: self._hide_hint(t))
+
+    def _hide_hint(self, text):
+        if self.lbl_pick_hint.text() == text and self.btn_pick.isEnabled():   # not if picking since
+            self.lbl_pick_hint.hide()
+
+    def set_picking(self, on, hint=""):
+        self.lbl_pick_hint.setText(hint)
+        self.lbl_pick_hint.setVisible(on and bool(hint))
+        self.btn_pick.setText("Picking…" if on else "Pick a stop")
         self.btn_pick.setToolTip("Esc cancels" if on else
                                  "Click any rover's stop (or an Ingenuity landing spot) on the "
                                  "map to see the photos from that sol")

@@ -18,7 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QToolButton, QPushButton, QDialog, QDialogButtonBox,
 )
 from qgis.core import (
-    QgsCoordinateTransform, QgsGeometry, QgsMessageLog, QgsPointXY, QgsProject, QgsRectangle,
+    QgsApplication, QgsCoordinateTransform, QgsGeometry, QgsMessageLog, QgsPointXY, QgsProject, QgsRectangle,
     QgsSettings, Qgis,
 )
 from qgis.gui import QgsMapToolEmitPoint, QgsVertexMarker
@@ -31,6 +31,7 @@ from .mars import (
 from .missions import MISSIONS, ROVER, photo_status
 from .rovers import RANK_GLOBAL, MissionLayers, group_path
 from .sources_info import rover_html, heli_html, imagery_html
+from .tiles import TileFetcher
 from .viewer import PhotoPanel
 
 CHECK_MS = 60 * 60 * 1000    # rovers move every few days at most
@@ -93,9 +94,11 @@ class SojournPlugin:
         self._marker = None      # map marker on the spot the photos on show were taken
         self._photo_check_failed = set()   # missions whose newest-photo check timed out
         self.imagery = {}        # imagery key -> layer, when shown
+        self.tiles = None        # background tile downloads (made in initGui)
         self.chk_imagery = None
         self.btn_mars = None
         self.lbl_footer = None
+        self.lbl_checked = None
         self._checked = None     # clock time of the last successful check
         self._error = None
         self._zoom_when_loaded = None
@@ -109,8 +112,18 @@ class SojournPlugin:
         self.action.toggled.connect(self._toggle_dock)
         self.iface.addToolBarIcon(self.action)
         self.iface.addPluginToMenu("Mars Sojourn", self.action)
+        self.tiles = TileFetcher(self.iface.mapCanvas())
+        # Stop every imagery download the moment QGIS starts to quit
+        QgsApplication.instance().aboutToQuit.connect(self.tiles.stop)
 
     def unload(self):
+        if self.tiles is not None:
+            self.tiles.stop()
+            self.tiles.disconnect_canvas()
+            try:
+                QgsApplication.instance().aboutToQuit.disconnect(self.tiles.stop)
+            except (TypeError, RuntimeError):
+                pass
         if self._project_hooked:
             QgsProject.instance().layersRemoved.disconnect(self._on_layers_removed)
             QgsProject.instance().crsChanged.disconnect(self._update_status)
@@ -201,11 +214,15 @@ class SojournPlugin:
         layout.setSpacing(3)
         layout.setContentsMargins(10, 8, 10, 8)
 
-        self._mission_rows(layout, "m20", "Perseverance", lambda: rover_html("m20"), 1)
+        self.lbl_checked = _grey_label(0, 1)   # when the rovers were last checked with NASA
+        layout.addWidget(self.lbl_checked)
+        layout.addSpacing(2)
+        self._mission_rows(layout, "m20", "Perseverance", lambda: self._info("m20", rover_html("m20")), 1)
         # Ingenuity flew from Perseverance, so it sits under it, indented
-        self._mission_rows(layout, "heli", "Ingenuity helicopter", heli_html, 1, indent=18)
+        self._mission_rows(layout, "heli", "Ingenuity helicopter", lambda: self._info("heli", heli_html()), 1,
+                           indent=18)
         layout.addSpacing(4)
-        self._mission_rows(layout, "msl", "Curiosity", lambda: rover_html("msl"), 1)
+        self._mission_rows(layout, "msl", "Curiosity", lambda: self._info("msl", rover_html("msl")), 1)
 
         layout.addSpacing(4)
         row = QHBoxLayout()
@@ -240,7 +257,7 @@ class SojournPlugin:
 
         self.photos = PhotoPanel(
             self._latest_photo_sol, self._where, self._show_spot, self._start_pick,
-            self._close_photos, self._mark_spot, self._nav_sols)
+            self._close_photos, self._mark_spot, self._nav_sols, self._rover_on_sol)
         self.photos.setContentsMargins(8, 0, 8, 6)
         self.photos.hide()   # until a rover's Photos button is pressed
 
@@ -271,19 +288,46 @@ class SojournPlugin:
         except (AttributeError, TypeError):
             dock.resize(width, dock.height())
 
+    def _info(self, key, title_body):
+        """A mission's ⓘ text, opening with its distance so far (kept out of the
+        panel so each mission's line there fits on one line)."""
+        title, body = title_body
+        position = self.sets[key].position
+        if not position or position.get("total_km") is None:
+            return title, body
+        if self.sets[key].is_heli:
+            so_far = (f"Flew {position['total_km']:.2f} km in {position['flight']} flights, "
+                      "April 2021 to January 2024.")
+        else:
+            so_far = (f"Driven {position['total_km']:.2f} km since landing "
+                      f"(as of its last drive, sol {position['sol']}).")
+        return title, f"<b>So far</b><br/>{so_far}<br/><br/>" + body
+
     def _show_info(self, title, body):
         dlg = QDialog(self.iface.mainWindow())
         dlg.setWindowTitle(f"About — {title}")
-        dlg.setMinimumWidth(460)
         v = QVBoxLayout(dlg)
         lbl = QLabel(body)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setWordWrap(True)
         lbl.setOpenExternalLinks(True)
-        v.addWidget(lbl)
+        lbl.setContentsMargins(4, 4, 12, 4)
+        # The text scrolls if it is taller than the dialog can be, so none of
+        # it is ever cut off (a bare QLabel under-reports wrapped text's height)
+        scroll = QScrollArea()
+        scroll.setWidget(lbl)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        v.addWidget(scroll)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dlg.reject)
         v.addWidget(buttons)
+        width = 620
+        screen = dlg.screen().availableGeometry() if dlg.screen() else None
+        tallest = int(screen.height() * 0.8) if screen else 700
+        needed = lbl.heightForWidth(width - 40) + buttons.sizeHint().height() + 40
+        dlg.resize(width, max(240, min(needed, tallest)))
         dlg.exec()
 
     # --- Mars or Earth ---------------------------------------------------
@@ -302,10 +346,7 @@ class SojournPlugin:
             self._switch_to_mars()
 
     def _switch_to_mars(self):
-        put_project_on_mars()
-        self.iface.messageBar().pushMessage(
-            "Mars Sojourn", "The map is now in a Mars projection (Mars Mercator).",
-            Qgis.MessageLevel.Info, 6)
+        put_project_on_mars()   # no message: the map itself shows it, and the ⓘ explains why
         self._update_status()
         focus = next((k for k in MISSIONS if self.sets[k].loaded()), None)
         if focus:
@@ -357,11 +398,16 @@ class SojournPlugin:
                 else:   # within the rover's group, below its rover, stops and route
                     add_layer(layer, 90 + len(IMAGERY) - i, group_path(mission))
                 self.imagery[spec["key"]] = layer
+                self.tiles.add(spec["key"], layer, spec)   # downloads its tiles in the background
             elif have and not want:
+                self.tiles.remove(spec["key"])
                 remove_layers([layer])
                 self.imagery.pop(spec["key"], None)
 
     def _remove_imagery(self):
+        for key in self.imagery:
+            if self.tiles is not None:
+                self.tiles.remove(key)
         remove_layers(list(self.imagery.values()))
         self.imagery = {}
 
@@ -474,9 +520,7 @@ class SojournPlugin:
         Ingenuity's landing spots); the photos from that sol then show below.
         Esc, or choosing another map tool, cancels."""
         if not any(layers.stops for layers in self.sets.values()):
-            self.iface.messageBar().pushMessage(
-                "Mars Sojourn", "Tick a rover first, so its stops are on the map.",
-                Qgis.MessageLevel.Info, 5)
+            self.photos.show_hint("Tick a rover first, so its stops are on the map.")
             return
         self._end_pick()
         canvas = self.iface.mapCanvas()
@@ -485,7 +529,9 @@ class SojournPlugin:
         tool.deactivated.connect(self._end_pick)
         self._pick_tool = (tool, None, canvas.mapTool())
         canvas.setMapTool(tool)
-        self.photos.set_picking(True)
+        self.photos.set_picking(
+            True, f"Click a {self._dot_colours()} dot on the map to see the photos from "
+                  "that sol. Esc cancels.")
 
     def _end_pick(self):
         if self._pick_tool is None:
@@ -504,18 +550,29 @@ class SojournPlugin:
     def _on_pick(self, point):
         tolerance = 12 * self.iface.mapCanvas().mapUnitsPerPixel()
         found = self.nearest_stop(point, tolerance)
-        self._end_pick()
-        if found is None:
-            self.iface.messageBar().pushMessage(
-                "Mars Sojourn", "No stop there: click right on one of the dots.",
-                Qgis.MessageLevel.Info, 4)
+        if found is None:   # keep picking; say so where the user is looking
+            self.photos.set_picking(
+                True, f"No stop there. Click right on a {self._dot_colours()} dot, or press "
+                      "Esc to cancel.")
             return
+        self._end_pick()
         key, stop = found
         centre = to_project(stop["lon"], stop["lat"])
         if centre is not None:
             self._ring(centre)    # mark the dot straight away; the photos follow
             self._flash(stop)
         self.show_photos(key, stop["sol"], pinned=centre is not None)
+
+    _DOT_COLOURS = {"m20": "blue", "msl": "yellow", "heli": "green"}
+
+    def _dot_colours(self):
+        """'blue', 'blue or yellow', 'blue, yellow or green': the colours of the
+        stops on the map now (each mission's stops are in its own colour)."""
+        names = [self._DOT_COLOURS[k] for k in MISSIONS
+                 if k in self._DOT_COLOURS and self.sets[k].layers() and self.sets[k].stops]
+        if len(names) < 2:
+            return "".join(names)
+        return ", ".join(names[:-1]) + " or " + names[-1]
 
     def nearest_stop(self, point, tolerance):
         """(mission key, stop) nearest a map point (project CRS) over every mission
@@ -553,6 +610,24 @@ class SojournPlugin:
             return None
         layers = self.sets[key]
         return sorted({s["sol"] for s in layers.stops if s.get("sol") is not None}) or None
+
+    def _rover_on_sol(self, key, sol):
+        """Where the mission was on ``sol``, as the panel's (site, drive) pair
+        (("sol", sol) for Ingenuity): the stop made that sol, else the last stop
+        before it, else None if the mission isn't on the map."""
+        layers = self.sets[key]
+        if key == "heli":
+            return ("sol", sol) if self._heli_spot(sol) is not None else None
+        position = layers.position
+        if position and position.get("sol") is not None and sol >= position["sol"]:
+            return position["site"], position["drive"]
+        best = None
+        for stop in layers.stops:
+            s = stop.get("sol")
+            if s is not None and s <= sol and stop.get("site") is not None \
+                    and (best is None or s >= best["sol"]):
+                best = stop
+        return (best["site"], best["drive"]) if best else None
 
     def _heli_spot(self, sol):
         """Where Ingenuity was on a sol: the landing spot of its last flight up to
@@ -691,14 +766,9 @@ class SojournPlugin:
     def _on_loaded(self, key, data):
         if key not in self.boxes or not self.boxes[key].isChecked():
             return   # late reply after the box was unticked
-        moved = self.sets[key].position is not None
-        self.sets[key].build(data)
+        self.sets[key].build(data)   # a new position shows in the panel's "Last drive" line
         self._checked = time.strftime("%H:%M")
         self._error = None
-        if moved:
-            self.iface.messageBar().pushMessage(
-                "Mars Sojourn", f"{MISSIONS[key]['name']} has a new position from NASA.",
-                Qgis.MessageLevel.Info, 8)
         if self._zoom_when_loaded == key:
             self._zoom_when_loaded = None
             self._zoom_to(key)
@@ -721,6 +791,18 @@ class SojournPlugin:
         self._update_status()
 
     # --- status text -----------------------------------------------------
+    def _checked_text(self):
+        """'NASA data checked 15:51 · next check 16:51': when the rover positions
+        and newest photos were last checked with NASA, and when they will be next."""
+        if not self._checked:
+            return "Checking NASA for the rovers' latest data…" if any(
+                chk.isChecked() for chk in self.boxes.values()) else ""
+        text = f"NASA data checked {self._checked}"
+        if self.timer is not None and self.timer.isActive():
+            text += " · next check " + time.strftime(
+                "%H:%M", time.localtime(time.time() + self.timer.remainingTime() / 1000))
+        return text
+
     def _mission_text(self, key):
         layers = self.sets[key]
         position = layers.position
@@ -731,13 +813,11 @@ class SojournPlugin:
         if position is None:
             return "Loading…" if self.feed.busy(key) else "Not loaded"
         if layers.is_heli:
-            return (f"Perseverance's helicopter: {position['flight']} flights, "
-                    f"{position['total_km']:.2f} km, last on {html.escape(position['date'])}")
-        text = (f"Last drive {position['date']} (sol {position['sol']}) · "
-                f"{position['total_km']:.2f} km driven")
+            return f"Last flight {html.escape(position['date'])} (sol {position['sol']})"
+        text = f"Last drive {position['date']} (sol {position['sol']})"
         state, photos = photo_status(position, layers.photo)
         if state == "moved":
-            text += f"<br/><span style='color:#c0392b'>{photos}</span>"
+            text += f"<br/><span style='color:#b9770e'>{photos}</span>"   # amber: a note, not an error
         return text
 
     def _update_status(self, *_args):
@@ -758,8 +838,8 @@ class SojournPlugin:
                       "Mars layers cannot be drawn.</span>")
         elif self._error:
             footer = f"<span style='color:#c0392b'>{html.escape(self._error)}</span>"
-        elif self._checked:
-            footer = f"Checked {self._checked} · checks NASA every hour"
         else:
-            footer = "Checks NASA every hour"
+            footer = ""
         self.lbl_footer.setText(footer)
+        self.lbl_footer.setVisible(bool(footer))
+        self.lbl_checked.setText(self._checked_text())
