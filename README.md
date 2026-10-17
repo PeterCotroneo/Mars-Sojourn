@@ -17,9 +17,9 @@ A "Mars Rovers" group in the Layers panel:
 
 Click a rover, stop or route with QGIS's Identify tool for the sol (Mars day since landing), distance driven, elevation and tilt.
 
-![Curiosity's route climbing through Gale crater, with a Navcam view of the crater rim in the panel](docs/img/02-curiosity-gale.jpg)
+![Curiosity's route climbing through Gale crater's colour imagery](docs/img/02-curiosity-gale.jpg)
 
-![Ingenuity's flights over Jezero, with the helicopter's own photo of its shadow after flight 55](docs/img/03-ingenuity-flights.jpg)
+![Ingenuity's flights over Jezero, with the helicopter's own photo of its shadow after flight 66](docs/img/03-ingenuity-flights.jpg)
 
 ## Photos
 
@@ -27,11 +27,11 @@ The bottom of the Mars Sojourn panel is a photo viewer with the rovers' raw phot
 
 - a strip of every photo from a sol, newest first, with a camera filter (Navcam, Mastcam-Z, Hazcams, WATSON, SuperCam and so on)
 - earlier and later sols with the arrows, or type any sol
-- click a thumbnail to see it in the preview: zoom with the mouse wheel or + and -, drag to pan, double-click to fit, arrow keys for the previous and next photo, ⤢ to see the photo large over the whole QGIS window (Esc closes), and full size on request
-- each photo says where it was taken (rovers stamp their photos with counters that match the stops on the map), with a Show on map link
+- click a thumbnail to see it in the preview: zoom with the mouse wheel or + and -, drag to pan, double-click to fit, arrow keys for the previous and next photo, ⤢ to see the photo large over the whole QGIS window (Esc closes)
+- each photo says where it was taken (rovers stamp their photos with counters that match the stops on the map), and the map follows it with a red ring
 - Pick a stop, then click any stop on the map, to see the photos from that sol
 
-![A Perseverance Navcam photo from sol 204, shown large over the QGIS window](docs/img/04-full-screen-photo.jpg)
+![A Perseverance Navcam photo from sol 1947, shown large over the QGIS window, timed in UTC and LMST](docs/img/04-full-screen-photo.jpg)
 
 Some raw frames are naturally dark or odd-looking: night-time and calibration shots, and partial frames with black around them. That is how NASA posts them.
 
@@ -45,7 +45,7 @@ Every hour Mars Sojourn also reads the newest photo NASA has posted from each ro
 
 QGIS cannot mix Earth and Mars coordinates, so Mars Sojourn puts the map in a proper Mars projection (Mars Mercator, IAU 2015) and measures on the Mars sphere. The scale bar and the Measure tool give real Martian distances.
 
-If your project is empty, Mars Sojourn switches the map to Mars for you. If it already holds layers of your own, it leaves the map alone and offers a "Switch map to Mars" button instead. Earth layers cannot be drawn on a Mars map, so use a separate project for those.
+If your project is empty, Mars Sojourn puts the map on Mars for you. If you have an Earth map open, it adds nothing to it (QGIS can't show Mars on an Earth map) and the panel offers **Open a Mars map**, which starts a new project on Mars (QGIS asks first whether to save yours). Open your Earth project again afterwards as usual; the rovers you ticked are remembered. (To put an existing project on Mars instead, set its projection to a Mars one in Project Properties; the rovers then appear in it, and its Earth layers stop drawing.)
 
 ## Install
 
@@ -65,7 +65,8 @@ Data courtesy NASA/JPL-Caltech. This plugin is not affiliated with or endorsed b
 
 ## Notes
 
-- Earth dates for stops are worked out from the sol number, at 13:00 Mars time, in UTC.
+- Earth dates for stops are worked out from the sol number, at 13:00 LMST, in UTC.
+- Photo times are shown in UTC and, for Perseverance and Ingenuity, in LMST: the rover's local mean solar time, NASA's own stamp. Mars has no time zones; each place's clock follows its longitude. Curiosity's feed gives UTC only.
 - A few Perseverance stops are labelled "Interpolated (not measured)". That is NASA's own flag for points filled in between two measured ones.
 - NASA's Curiosity route file carries no sol numbers, so the route there is not dated; the stops are.
 
