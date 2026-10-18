@@ -567,14 +567,11 @@ class PhotoPanel(QWidget):
         row.setSpacing(2)
         self.lbl_where = ElidedLabel("", grey=True)
         row.addWidget(self.lbl_where, 1)
-        self.btn_map = _tool("Map", "Centre the map on where this photo was taken",
-                             lambda: self._map_current(), _LINK)
-        self.btn_full = _tool("Full size", "Load the original full-size image (can be several MB)",
-                              lambda: self._load_big(full=True), _LINK)
+        # The map already follows the photo on show, and ⤢ shows it large, so the
+        # one link left is to the photo's own page at NASA
         self.btn_nasa = _tool("NASA ↗", "Open this photo's page on NASA's website",
                               lambda: self._open_nasa(), _LINK)
-        for btn in (self.btn_map, self.btn_full, self.btn_nasa):
-            row.addWidget(btn)
+        row.addWidget(self.btn_nasa)
         c.addLayout(row)
         self.stack.addWidget(content)
 
@@ -923,8 +920,7 @@ class PhotoPanel(QWidget):
     def _clear_caption(self):
         self.lbl_caption.setText("")
         self.lbl_where.setText("")
-        for btn in (self.btn_map, self.btn_full, self.btn_nasa):
-            btn.hide()
+        self.btn_nasa.hide()
 
     def _location_of(self, p):
         if self.key != "heli" and p["site"] is not None and p["drive"] is not None:
@@ -936,19 +932,16 @@ class PhotoPanel(QWidget):
         if p["taken"]:
             parts.append(f"{format_date(p['taken'].date())}, {p['taken'].strftime('%H:%M')} UTC")
         if p["local"]:
-            parts.append(f"{p['local']} Mars time")
+            parts.append(f"{p['local']} LMST")   # NASA's local mean solar time (see the ⓘ)
         self.lbl_caption.setText(" · ".join(parts))
         self.lbl_caption.setToolTip(
             f"{' · '.join(parts)}\n{p['id']}\nImage credit: {p['credit']}")
         location = self._location_of(p)
-        can_show = False
         if location:
-            where, can_show = self._where(self.key, *location)
+            where, _on_map = self._where(self.key, *location)
             self.lbl_where.setText(where[0].upper() + where[1:])
         else:
             self.lbl_where.setText("No location stamp on this photo")
-        self.btn_map.setVisible(can_show)
-        self.btn_full.setVisible(bool(p["full"]) and p["full"] != p["view"])
         self.btn_nasa.setVisible(bool(p["link"]))
         self._status(state)
 
@@ -996,12 +989,6 @@ class PhotoPanel(QWidget):
         if self._lightbox is not None:
             self._lightbox.close_box()
 
-    def _map_current(self):
-        if 0 <= self._index < len(self._shown):
-            location = self._location_of(self._shown[self._index])
-            if location:
-                self._show_on_map(self.key, *location)
-
     def _open_nasa(self):
         if 0 <= self._index < len(self._shown) and self._shown[self._index]["link"]:
             QDesktopServices.openUrl(QUrl(self._shown[self._index]["link"]))
@@ -1040,8 +1027,6 @@ class PhotoPanel(QWidget):
         if self._lightbox is not None and self._lightbox.isVisible():
             self._lightbox.view.set_pixmap(pixmap, keep_view=True)
         self._status("")
-        if full:
-            self.btn_full.hide()
 
     def step(self, delta):
         self._pinned = False   # stepping through photos: the ring follows them

@@ -9,6 +9,12 @@ _CREDIT = (
 )
 
 
+# Mars has no time zones: each place's clock follows its longitude
+_LMST = ("Photo times are in UTC and in <b>LMST</b>, the rover's local mean solar time. "
+         "Mars has no time zones; each place's clock follows its longitude, and NASA's "
+         "teams plan the rovers' days in LMST. A sol lasts 24 hours 39 minutes 35 seconds.")
+
+
 def _how(text):
     return f"<b>How positions are known</b><br/>{text}<br/><br/>"
 
@@ -43,7 +49,7 @@ def rover_html(key):
         "filled in between two measured ones. The <b>route</b> is the path driven "
         "between stops. Click anything with QGIS's Identify tool for the sol (Mars day since landing), "
         "distance driven and elevation. Earth dates are worked out from the sol "
-        "number, at 13:00 Mars time, in UTC. (QGIS shows Identify results for the "
+        "number, at 13:00 LMST, in UTC. (QGIS shows Identify results for the "
         "selected layer only, unless the Identify panel's Mode is set to Top down.)"
         "<br/><br/>"
         "<b>Photos</b><br/>"
@@ -52,8 +58,10 @@ def rover_html(key):
         "of reaching Earth. Step through sols, filter by camera, and click a thumbnail "
         "to see it in the preview (zoom with the mouse wheel, drag to pan, arrow keys "
         "for the next photo, ⤢ to see it large over the whole QGIS window). Each photo says where it was "
-        "taken, and <b>Pick a stop</b> shows the photos from any stop you click on the map."
-        "<br/><br/>" + _CREDIT
+        "taken, and <b>Pick a stop</b> shows the photos from any stop you click on the map. "
+        + (_LMST if key == "m20" else
+           "Curiosity's photos are stamped in UTC only: NASA's feed for Curiosity gives no Mars time.")
+        + "<br/><br/>" + _CREDIT
     )
 
 
@@ -75,8 +83,8 @@ def heli_html():
         "<b>Photos</b> shows Ingenuity's own photos, from its navigation and colour "
         "cameras, from NASA's Ingenuity raw-image feed. ◀ ▶ step from flight to "
         "flight. Some flights' photos reached Earth only on a later sol, so a flight "
-        "sol can have none."
-        "<br/><br/>" + _CREDIT
+        "sol can have none. " + _LMST.replace("the rover's", "Ingenuity's").replace("the rovers'", "the missions'")
+        + "<br/><br/>" + _CREDIT
     )
 
 
@@ -98,7 +106,8 @@ def imagery_html():
         "QGIS cannot mix Earth and Mars coordinates, so the plugin puts the map in a "
         "Mars projection (Mars Mercator, IAU 2015) and measures on the Mars sphere, "
         "which means the scale bar and the Measure tool give real Martian distances. "
-        "Earth layers cannot be drawn on the same map; use a separate project for those."
+        "Earth layers cannot be drawn on the same map, so with an Earth map open the panel "
+        "offers to open a Mars map (a new project) instead."
         "<br/><br/>"
         '<p style="color:gray">Global colour mosaic from NASA Mars Trek; rover-site '
         "imagery from NASA/JPL's rover location maps; Jezero's CTX mosaic from NASA "

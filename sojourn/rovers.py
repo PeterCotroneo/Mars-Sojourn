@@ -131,6 +131,7 @@ class MissionLayers:
         self.photo = None         # the rover's newest raw photo (sol, day, site, drive)
         self.stops = []           # every stop, oldest first
         self.stop_count = 0
+        self.data = None          # NASA's latest data, kept so layers can be drawn later
         self._position = self._stops = self._route = None
 
     # --- lifecycle -------------------------------------------------------
@@ -151,6 +152,7 @@ class MissionLayers:
         self.photo = None
         self.stops = []
         self.stop_count = 0
+        self.data = None
 
     def _titles(self):
         if self.is_heli:
@@ -201,17 +203,39 @@ class MissionLayers:
                 return stop
         return None
 
+    def drop_layers(self):
+        """Take the mission's layers off the map, keeping its data (the map has
+        left Mars). ``draw()`` puts them back."""
+        remove_layers(self.layers())
+        self._position = self._stops = self._route = None
+
+    def forget_layers(self):
+        """The project was closed, taking the layers with it: keep the data."""
+        self._position = self._stops = self._route = None
+
     # --- data ------------------------------------------------------------
-    def build(self, data):
+    def store(self, data):
+        """Keep NASA's latest data (the panel's "Last drive" line reads it)
+        without drawing anything: the map may not be on Mars."""
+        self.data = data
         self.position = data["position"]
         self.published = data.get("published")
         self.stops = data["stops"]
         self.stop_count = len(data["stops"])
+
+    def draw(self):
+        """Draw the stored data on the map (which must be on Mars)."""
+        if self.data is None:
+            return
         self._ensure_layers()
         if self.is_heli:
-            self._build_flights(data)
+            self._build_flights(self.data)
         else:
-            self._build_rover(data)
+            self._build_rover(self.data)
+
+    def build(self, data):
+        self.store(data)
+        self.draw()
 
     def published_text(self):
         if not self.published:

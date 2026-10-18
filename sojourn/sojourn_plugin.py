@@ -96,12 +96,12 @@ class SojournPlugin:
         self.imagery = {}        # imagery key -> layer, when shown
         self.tiles = None        # background tile downloads (made in initGui)
         self.chk_imagery = None
-        self.btn_mars = None
         self.lbl_footer = None
         self.lbl_checked = None
         self._checked = None     # clock time of the last successful check
         self._error = None
         self._zoom_when_loaded = None
+        self._keep_ticks = False  # layers are going (project closing, map left Mars): keep the boxes ticked
         self._project_hooked = False
 
     # --- plugin lifecycle ------------------------------------------------
@@ -125,8 +125,15 @@ class SojournPlugin:
             except (TypeError, RuntimeError):
                 pass
         if self._project_hooked:
-            QgsProject.instance().layersRemoved.disconnect(self._on_layers_removed)
-            QgsProject.instance().crsChanged.disconnect(self._update_status)
+            project = QgsProject.instance()
+            for signal, slot in ((project.layersRemoved, self._on_layers_removed),
+                                 (project.crsChanged, self._on_planet_changed),
+                                 (project.aboutToBeCleared, self._on_project_closing),
+                                 (project.cleared, self._on_project_closed)):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
             self._project_hooked = False
         if self.timer is not None:
             self.timer.stop()
@@ -156,8 +163,11 @@ class SojournPlugin:
                 self.dock = self._build_dock()
                 self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
                 self._dock_width(self.dock, self._start_width())
-                QgsProject.instance().layersRemoved.connect(self._on_layers_removed)
-                QgsProject.instance().crsChanged.connect(self._update_status)
+                project = QgsProject.instance()
+                project.layersRemoved.connect(self._on_layers_removed)
+                project.crsChanged.connect(self._on_planet_changed)
+                project.aboutToBeCleared.connect(self._on_project_closing)
+                project.cleared.connect(self._on_project_closed)
                 self._project_hooked = True
             self.dock.show()
             if first:
@@ -235,13 +245,26 @@ class SojournPlugin:
         row.addStretch(1)
         layout.addLayout(row)
 
-        self.btn_mars = QPushButton("Switch map to Mars")
-        self.btn_mars.setToolTip(
-            "This project's map is in an Earth coordinate system, so Mars layers cannot "
-            "be drawn. Switching puts the map in Mars Mercator; Earth layers in this "
-            "project will then stop drawing.")
-        self.btn_mars.clicked.connect(lambda _=False: self._switch_to_mars())
-        layout.addWidget(self.btn_mars)
+        # Shown when the project's map is on Earth: QGIS can't draw Mars on an
+        # Earth map, so nothing is added to it and the user chooses what to do.
+        self.earth_box = QFrame()
+        self.earth_box.setStyleSheet(
+            "QFrame { background: palette(alternate-base); border-radius: 6px; }")
+        box = QVBoxLayout(self.earth_box)
+        box.setContentsMargins(10, 8, 10, 10)
+        box.setSpacing(6)
+        note = QLabel("<b>Mars needs its own map.</b> Your current map is on Earth, "
+                      "and QGIS can't show Mars on it.")
+        note.setWordWrap(True)
+        box.addWidget(note)
+        btn_new = QPushButton("Open a Mars map (closes this project)")
+        btn_new.setToolTip("Starts a new QGIS project on Mars. QGIS asks first if you want "
+                           "to save this one; open it again afterwards as usual.")
+        btn_new.setDefault(True)
+        btn_new.clicked.connect(lambda _=False: self._open_mars_project())
+        box.addWidget(btn_new)
+        self.earth_box.hide()
+        layout.addWidget(self.earth_box)
 
         self.lbl_footer = _grey_label(0, 1)
         layout.addWidget(self.lbl_footer)
@@ -347,10 +370,53 @@ class SojournPlugin:
 
     def _switch_to_mars(self):
         put_project_on_mars()   # no message: the map itself shows it, and the ⓘ explains why
-        self._update_status()
+        self._on_planet_changed()
         focus = next((k for k in MISSIONS if self.sets[k].loaded()), None)
         if focus:
             self._zoom_to(focus)
+
+    def _open_mars_project(self):
+        """Start a new project on Mars (QGIS asks first whether to save the
+        current one); the ticked missions are drawn in it."""
+        if not self.iface.newProject(True):
+            return   # the user cancelled QGIS's save prompt
+        self._switch_to_mars()
+
+    def _on_project_closing(self):
+        self._keep_ticks = True   # its layers are about to go: keep the boxes ticked
+
+    def _on_project_closed(self):
+        self._keep_ticks = False
+        for layers in self.sets.values():
+            layers.forget_layers()
+        self.imagery = {}
+        if self.tiles is not None:
+            for spec in IMAGERY:
+                self.tiles.remove(spec["key"])
+        self._end_pick()
+        self._clear_marker()
+        self._update_status()
+
+    def _on_planet_changed(self, *_args):
+        """Mars layers only ever go on a Mars map: draw the ticked missions when
+        the map is on Mars, take them off (keeping their data) when it isn't."""
+        on_mars = project_is_on_mars()
+        self._keep_ticks = True   # layers taken off here aren't the user deleting them
+        try:
+            for key, chk in self.boxes.items():
+                layers = self.sets[key]
+                if on_mars and chk.isChecked() and layers.data is not None and not layers.layers():
+                    layers.draw()
+                elif not on_mars and layers.layers():
+                    layers.drop_layers()
+            if not on_mars:
+                self._remove_imagery()
+                self._clear_marker()
+            self._sync_imagery()
+        finally:
+            self._keep_ticks = False
+        self._redraw_map()
+        self._update_status()
 
     # --- the checkboxes --------------------------------------------------
     def _on_mission_toggled(self, key, on):
@@ -379,7 +445,7 @@ class SojournPlugin:
         """Imagery follows the boxes: the global mosaic whenever "Mars imagery"
         is ticked, and each rover's close-up imagery, inside that rover's group,
         only while the rover is ticked too."""
-        on = self.chk_imagery is not None and self.chk_imagery.isChecked()
+        on = self.chk_imagery is not None and self.chk_imagery.isChecked() and project_is_on_mars()
         for i, spec in enumerate(IMAGERY):
             mission = spec.get("mission")
             # Jezero's imagery serves Perseverance and Ingenuity alike
@@ -412,7 +478,10 @@ class SojournPlugin:
         self.imagery = {}
 
     def _on_layers_removed(self, _layer_ids):
-        # Keep the boxes in step if the user deletes layers in the Layers panel.
+        # Keep the boxes in step if the user deletes layers in the Layers panel
+        # (not when a whole project closes: the ticks carry on to the next one).
+        if self._keep_ticks:
+            return
         for key, chk in self.boxes.items():
             if chk.isChecked() and not self.feed.busy(key) and not self.sets[key].layers():
                 chk.setChecked(False)
@@ -519,7 +588,10 @@ class SojournPlugin:
         """Let the user click any stop on the map (either rover's, or one of
         Ingenuity's landing spots); the photos from that sol then show below.
         Esc, or choosing another map tool, cancels."""
-        if not any(layers.stops for layers in self.sets.values()):
+        if not project_is_on_mars():
+            self.photos.show_hint("Pick a stop needs the Mars map: open one from the panel above.")
+            return
+        if not any(layers.layers() and layers.stops for layers in self.sets.values()):
             self.photos.show_hint("Tick a rover first, so its stops are on the map.")
             return
         self._end_pick()
@@ -654,7 +726,7 @@ class SojournPlugin:
             return "at the rover's current spot", True
         stop = layers.find_stop(site, drive)
         if stop is not None:
-            return f"at its stop of {stop['date']} (sol {stop['sol']})", True
+            return f"at its stop on {stop['date']} (sol {stop['sol']})", True
         if not layers.stops:
             return f"at site {site}, drive {drive} (tick the rover to see it on the map)", False
         return "at a spot NASA has not mapped yet", False
@@ -766,7 +838,10 @@ class SojournPlugin:
     def _on_loaded(self, key, data):
         if key not in self.boxes or not self.boxes[key].isChecked():
             return   # late reply after the box was unticked
-        self.sets[key].build(data)   # a new position shows in the panel's "Last drive" line
+        if project_is_on_mars():
+            self.sets[key].build(data)   # a new position shows in the panel's "Last drive" line
+        else:
+            self.sets[key].store(data)   # drawn once the map is on Mars
         self._checked = time.strftime("%H:%M")
         self._error = None
         if self._zoom_when_loaded == key:
@@ -827,16 +902,14 @@ class SojournPlugin:
         # layout and size never jump around.
         for key, label in self.labels.items():
             label.setText(self._mission_text(key))
-            self.zoom_buttons[key].setEnabled(self.sets[key].position is not None)
+            self.zoom_buttons[key].setEnabled(self.sets[key].position is not None
+                                              and project_is_on_mars())
 
         showing = any(chk.isChecked() for chk in self.boxes.values()) \
             or self.chk_imagery.isChecked()
         on_earth = showing and not project_is_on_mars()
-        self.btn_mars.setVisible(on_earth)
-        if on_earth:
-            footer = ("<span style='color:#c0392b'>This project's map is on Earth, so "
-                      "Mars layers cannot be drawn.</span>")
-        elif self._error:
+        self.earth_box.setVisible(on_earth)
+        if self._error:
             footer = f"<span style='color:#c0392b'>{html.escape(self._error)}</span>"
         else:
             footer = ""
