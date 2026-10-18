@@ -33,6 +33,14 @@ The bottom of the Mars Sojourn panel is a photo viewer with the rovers' raw phot
 
 ![A Perseverance Navcam photo from sol 1947, shown large over the QGIS window, timed in UTC and LMST](docs/img/04-full-screen-photo-2026-10.jpg)
 
+Every sol back to landing is there. A few from the early days:
+
+![Curiosity's Navcam on sol 16 (22 August 2012): its arm with the CURIOSITY nameplate and the wheel tracks from its first drives](docs/img/05-curiosity-sol-16.jpg)
+
+![Perseverance's Mastcam-Z calibration target on sol 2, marked "Two worlds, one beginning"](docs/img/06-perseverance-calibration-target.jpg)
+
+![Perseverance's Navcam on sol 2: the rover's deck and the floor of Jezero crater, two days after landing](docs/img/07-perseverance-sol-2.jpg)
+
 Some raw frames are naturally dark or odd-looking: night-time and calibration shots, and partial frames with black around them. That is how NASA posts them.
 
 ## It is not live tracking
