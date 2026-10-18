@@ -699,7 +699,22 @@ class SojournPlugin:
             if s is not None and s <= sol and stop.get("site") is not None \
                     and (best is None or s >= best["sol"]):
                 best = stop
+        best = best or self._landing(key)   # before its first stop: still where it landed
         return (best["site"], best["drive"]) if best else None
+
+    def _landing(self, key):
+        """The rover's landing spot: its first mapped stop (NASA's first entry is
+        0 m from landing; before it the rover had not moved), or None."""
+        stops = [s for s in self.sets[key].stops if s.get("sol") is not None and s.get("site") is not None]
+        return min(stops, key=lambda s: (s["sol"], s["site"], s["drive"] or 0)) if stops else None
+
+    def _before_landing_stop(self, key, site, drive):
+        """True if a photo stamped (site, drive) was taken before the rover's first
+        mapped stop, i.e. at its landing site (site and drive only count up)."""
+        landing = self._landing(key)
+        if landing is None or site is None:
+            return False
+        return (site, drive or 0) < (landing["site"], landing["drive"] or 0)
 
     def _heli_spot(self, sol):
         """Where Ingenuity was on a sol: the landing spot of its last flight up to
@@ -726,7 +741,11 @@ class SojournPlugin:
             return "at the rover's current spot", True
         stop = layers.find_stop(site, drive)
         if stop is not None:
+            if stop is self._landing(key):
+                return "at its landing site", True
             return f"at its stop on {stop['date']} (sol {stop['sol']})", True
+        if self._before_landing_stop(key, site, drive):
+            return "at its landing site", True
         if not layers.stops:
             return f"at site {site}, drive {drive} (tick the rover to see it on the map)", False
         return "at a spot NASA has not mapped yet", False
@@ -740,7 +759,10 @@ class SojournPlugin:
         position = layers.position
         if position and (position["site"], position["drive"]) == (site, drive):
             return position
-        return layers.find_stop(site, drive)
+        stop = layers.find_stop(site, drive)
+        if stop is None and self._before_landing_stop(key, site, drive):
+            stop = self._landing(key)
+        return stop
 
     def _mark_spot(self, key, site, drive):
         """Centre the map (keeping its scale) on where the photos on show were
