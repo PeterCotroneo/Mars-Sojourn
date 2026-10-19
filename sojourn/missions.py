@@ -320,10 +320,12 @@ def parse_photos(key, doc):
             mars = item.get("date_taken_mars") or ""
             sol = _int(item.get("sol"))
             taken = _when(item.get("date_taken_utc"))
-            if key == "heli":
-                # Ingenuity's feed gives the date the photo reached Earth, often
-                # weeks later; the Mars time stamped on it says when it was taken
-                taken = _mars_time_utc("m20", sol, mars.split("M")[-1]) or taken
+            # The Mars time stamped on each photo says when it was taken: work
+            # the UTC time out from it. Ingenuity's feed gives the date a photo
+            # reached Earth (often weeks later), and a few Perseverance photos
+            # carry the wrong Earth date. Checked against Perseverance photos
+            # whose Earth dates are right: they agree to about a second.
+            taken = _mars_time_utc("m20", sol, mars.split("M")[-1]) or taken
             photos.append({
                 "id": item.get("imageid") or "", "sol": sol,
                 "taken": taken,

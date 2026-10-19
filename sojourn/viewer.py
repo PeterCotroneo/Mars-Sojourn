@@ -25,7 +25,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.core import QgsMessageLog, QgsNetworkAccessManager, Qgis
 
-from .missions import MISSIONS, format_date, parse_photos, photos_url
+from .missions import MISSIONS, format_date, parse_photos, photos_url, sol_date
 
 _USER_AGENT = "Mars Sojourn QGIS plugin (+https://github.com/PeterCotroneo/Mars-Sojourn)"
 _THUMB = QSize(84, 63)
@@ -849,11 +849,20 @@ class PhotoPanel(QWidget):
         return max(counts, key=counts.get) if counts else None
 
     def _describe_sol(self):
-        days = sorted({p["taken"].date() for p in self._photos if p["taken"]})
+        # The sol's date comes from the sol number (as the map's stops do), not
+        # from the photos: NASA stamps a few photos with the wrong Earth date
+        # (on Perseverance's sol 2, frames dated up to four days later)
+        # (Ingenuity's heading names its flight and that flight's date, so its
+        # date comes from its photos, timed from their Mars stamps; a sol spans
+        # two Earth dates and the two could otherwise differ by a day)
+        day = None if self.key == "heli" else sol_date(self.key, self._sol)
+        if day is None:
+            days = sorted({p["taken"].date() for p in self._photos if p["taken"]})
+            day = days[-1] if days else None
         n = len(self._photos)
         parts = [f"Sol {self._sol}"]
-        if days:
-            parts.append(format_date(days[-1]))
+        if day:
+            parts.append(format_date(day))
         if self.key == "heli":
             location = self._sol_location()
             where, _can_show = self._where(self.key, *location)

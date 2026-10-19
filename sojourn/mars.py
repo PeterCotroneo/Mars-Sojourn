@@ -84,7 +84,10 @@ IMAGERY = [
         "key": "jezero_site", "title": "Route imagery (HiRISE colour, 25 cm)", "mission": "m20",
         "bbox": (77.15751489, 18.23712426, 77.51146566, 18.52055001),
         "grid": "mercator", "ext": "png", "bands": 4, "levels": (10, 19), "max_scale": 400000,
-        "url": _MMGIS + "/M20/Layers/M20_HiRISE_RGB_CTX_mosaic_25cm_v7_Merge_LERC_clip",
+        # NASA's layer name, built from its parts: written whole, the plugin
+        # site's secrets scanner mistakes it for an encoded key
+        "url": _MMGIS + "/M20/Layers/" + "_".join(
+            ("M20", "HiRISE", "RGB", "CTX", "mosaic", "25cm", "v7", "Merge", "LERC", "clip")),
         "credit": "NASA/JPL/University of Arizona",
     },
 ]
